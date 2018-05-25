@@ -41,32 +41,6 @@ interface IMonzoPipelinePayload {
     monzoAccessToken: string;
 }
 
-type TTimeInterval = "10 - 20 mins" | "20 - 30 mins" | "30 - 40 mins" | "40+ mins" | "default";
-
-interface IProbablityMap {
-    "10 - 20 mins": number;
-    "20 - 30 mins": number;
-    "30 - 40 mins": number;
-    "40+ mins": number;
-    "default": number;
-}
-
-const habitProbabilityMap: IProbablityMap = {
-    "10 - 20 mins": 0.2,
-    "20 - 30 mins": 0.3,
-    "30 - 40 mins": 0.4,
-    "40+ mins": 0.5,
-    "default": 0.1,
-};
-
-const lowPriorityHabitProbabilityMap: IProbablityMap = {
-    "10 - 20 mins": 0.1,
-    "20 - 30 mins": 0.15,
-    "30 - 40 mins": 0.2,
-    "40+ mins": 0.25,
-    "default": 0.05,
-};
-
 interface IAirtableResponse {
     records: IAirtableRow[];
 }
@@ -74,19 +48,18 @@ interface IAirtableResponse {
 interface IAirtableRow {
     "id": string;
     "fields": {
-        "Habit": undefined | string;
-        "Low Priority Habit": undefined | string;
-        "Daily Habit": undefined | string;
-        "Time Spent": undefined | TTimeInterval;
+        "Next unit of work": undefined | string;
+        "What slowed you down?": undefined | string;
+        "Created at": undefined | string;
+        "Completed at": undefined | string;
         "Reward": undefined | string;
+        "Processed": undefined | string;
     };
 }
 
-const isTimeIntervalValid = (interval: TTimeInterval) => contains(interval, ["0 - 10 mins", "10 - 20 mins", "20 - 30 mins", "40+ mins", "30 - 40 mins", "default"]);
-
 const fetchUnprocessedAirtableRows = () => {
     return from(
-        fetch("https://api.airtable.com/v0/appvcDcxH8llgwoN7/Habits?&view=Grid%20view&filterByFormula=NOT(Processed = 1)", {
+        fetch("https://api.airtable.com/v0/appvcDcxH8llgwoN7/Workflow?&view=Grid%20view&filterByFormula=NOT(Processed = 1)", {
             headers: {
                 Authorization: "Bearer " + process.env.AIRTABLE_KEY,
             },
@@ -101,7 +74,7 @@ const fetchUnprocessedAirtableRows = () => {
 };
 
 const isRowReadyForProcessing = (row: IAirtableRow): boolean => {
-    const isReady = ((row.fields.Habit || row.fields["Low Priority Habit"] || row.fields["Daily Habit"]) && row.fields["Time Spent"]) ? true : false;
+    const isReady = (row.fields["What slowed you down?"]) ? true : false;
 
     if (! isReady) {
         console.log("Filtered out row as not ready for processing:", row);
@@ -112,30 +85,26 @@ const isRowReadyForProcessing = (row: IAirtableRow): boolean => {
 
 const generateReward = (row: IAirtableRow) => {
     const rand = Math.random();
-    const probabilityMap: IProbablityMap = row.fields.Habit
-        ? habitProbabilityMap
-        : lowPriorityHabitProbabilityMap;
-    const duration = row.fields["Time Spent"];
-    const cutoff = probabilityMap[duration] ? probabilityMap[duration] : probabilityMap.default;
+    const cutoff = 0.15;
     let reward = 0;
     if (rand < cutoff) {
         reward = Math.round(Math.random() * 400);
     }
-    console.log("Generated reward.", "Row id:", row.id, reward, "Probability", cutoff, "Probability map:", probabilityMap);
+    console.log("Generated reward.", "Row id:", row.id, reward, "Probability", cutoff);
     return reward;
 };
 
-const addRewardToAirtableRow = (row: IAirtableRow) => {
-    if (! isTimeIntervalValid(row.fields["Time Spent"])) {
-        console.error("Invalid 'Time Spent' property", row);
-        throw new Error("Invalid 'Time Spent' property");
-    }
-
-    return assocPath(
-        ["fields", "Reward"],
-        generateReward(row),
-        row,
-    );
+const addRewardToAirtableRow = (row: IAirtableRow): IAirtableRow => {
+    return pipe(
+        assocPath(
+            ["fields", "Reward"],
+            generateReward(row),
+        ),
+        assocPath(
+            ["fields", "Completed at"],
+            (new Date()).toISOString(),
+        ),
+    )(row) as IAirtableRow;
 };
 
 const getMonzoRefreshToken = (row: IAirtableRow): Observable<IMonzoPipelinePayload> => {
@@ -247,7 +216,7 @@ const doPushoverNotification = (payload: IMonzoPipelinePayload) => {
     formData.append("token", process.env.PUSHOVER_TOKEN);
     formData.append("user", process.env.PUSHOVER_USER);
     formData.append("device", process.env.PUSHOVER_DEVICE);
-    formData.append("title", `${payload.row.fields.Habit}' - Awesome job!`);
+    formData.append("title", `${payload.row.fields["Next unit of work"]}' - Completed!`);
     formData.append("message", `You get £${(Number(payload.row.fields.Reward) / 100).toFixed(2)}!`);
     return from(
         fetch("https://api.pushover.net/1/messages.json", {
@@ -268,7 +237,12 @@ const doPushoverNotification = (payload: IMonzoPipelinePayload) => {
 const markRowAsCompletedInAirtable = (payload: IMonzoPipelinePayload) => {
     return from(
         fetch("https://api.airtable.com/v0/appvcDcxH8llgwoN7/Table%201/" + payload.row.id, {
-            body: JSON.stringify({fields: {Reward: Number(payload.row.fields.Reward) / 100, Processed: true}}),
+            body: JSON.stringify({
+                fields: {
+                    "Completed at": payload.row.fields["Completed at"],
+                    "Processed": true,
+                    "Reward": Number(payload.row.fields.Reward) / 100,
+                }}),
             headers: {
                 "Authorization": `Bearer ${process.env.AIRTABLE_KEY}`,
                 "Content-Type": "application/json",

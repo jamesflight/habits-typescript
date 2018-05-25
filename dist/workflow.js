@@ -33,23 +33,8 @@ process.env.MONZO_CLIENT_SECRET = "mnzconf.n44Bo+He2bE1KsU3EbLqthJSAcH8rvjPc5ZDB
 process.env.PUSHOVER_TOKEN = "a72nyvga1h2q4tf4pr1dfz12r7qjo9";
 process.env.PUSHOVER_USER = "u2snmzbc3u6fkszekrjnftrqk1pwch";
 process.env.PUSHOVER_DEVICE = "sm-g900f";
-const habitProbabilityMap = {
-    "10 - 20 mins": 0.2,
-    "20 - 30 mins": 0.3,
-    "30 - 40 mins": 0.4,
-    "40+ mins": 0.5,
-    "default": 0.1,
-};
-const lowPriorityHabitProbabilityMap = {
-    "10 - 20 mins": 0.1,
-    "20 - 30 mins": 0.15,
-    "30 - 40 mins": 0.2,
-    "40+ mins": 0.25,
-    "default": 0.05,
-};
-const isTimeIntervalValid = (interval) => ramda_1.contains(interval, ["0 - 10 mins", "10 - 20 mins", "20 - 30 mins", "40+ mins", "30 - 40 mins", "default"]);
 const fetchUnprocessedAirtableRows = () => {
-    return rxjs_1.from(node_fetch_1.default("https://api.airtable.com/v0/appvcDcxH8llgwoN7/Habits?&view=Grid%20view&filterByFormula=NOT(Processed = 1)", {
+    return rxjs_1.from(node_fetch_1.default("https://api.airtable.com/v0/appvcDcxH8llgwoN7/Workflow?&view=Grid%20view&filterByFormula=NOT(Processed = 1)", {
         headers: {
             Authorization: "Bearer " + process.env.AIRTABLE_KEY,
         },
@@ -62,7 +47,7 @@ const fetchUnprocessedAirtableRows = () => {
     }));
 };
 const isRowReadyForProcessing = (row) => {
-    const isReady = ((row.fields.Habit || row.fields["Low Priority Habit"] || row.fields["Daily Habit"]) && row.fields["Time Spent"]) ? true : false;
+    const isReady = (row.fields["What slowed you down?"]) ? true : false;
     if (!isReady) {
         console.log("Filtered out row as not ready for processing:", row);
     }
@@ -70,24 +55,16 @@ const isRowReadyForProcessing = (row) => {
 };
 const generateReward = (row) => {
     const rand = Math.random();
-    const probabilityMap = row.fields.Habit
-        ? habitProbabilityMap
-        : lowPriorityHabitProbabilityMap;
-    const duration = row.fields["Time Spent"];
-    const cutoff = probabilityMap[duration] ? probabilityMap[duration] : probabilityMap.default;
+    const cutoff = 0.15;
     let reward = 0;
     if (rand < cutoff) {
         reward = Math.round(Math.random() * 400);
     }
-    console.log("Generated reward.", "Row id:", row.id, reward, "Probability", cutoff, "Probability map:", probabilityMap);
+    console.log("Generated reward.", "Row id:", row.id, reward, "Probability", cutoff);
     return reward;
 };
 const addRewardToAirtableRow = (row) => {
-    if (!isTimeIntervalValid(row.fields["Time Spent"])) {
-        console.error("Invalid 'Time Spent' property", row);
-        throw new Error("Invalid 'Time Spent' property");
-    }
-    return ramda_1.assocPath(["fields", "Reward"], generateReward(row), row);
+    return ramda_1.pipe(ramda_1.assocPath(["fields", "Reward"], generateReward(row)), ramda_1.assocPath(["fields", "Completed at"], (new Date()).toISOString()))(row);
 };
 const getMonzoRefreshToken = (row) => {
     return dynamoDbGet({
@@ -174,7 +151,7 @@ const doPushoverNotification = (payload) => {
     formData.append("token", process.env.PUSHOVER_TOKEN);
     formData.append("user", process.env.PUSHOVER_USER);
     formData.append("device", process.env.PUSHOVER_DEVICE);
-    formData.append("title", `${payload.row.fields.Habit}' - Awesome job!`);
+    formData.append("title", `${payload.row.fields["Next unit of work"]}' - Completed!`);
     formData.append("message", `You get £${(Number(payload.row.fields.Reward) / 100).toFixed(2)}!`);
     return rxjs_1.from(node_fetch_1.default("https://api.pushover.net/1/messages.json", {
         body: formData,
@@ -189,7 +166,13 @@ const doPushoverNotification = (payload) => {
 };
 const markRowAsCompletedInAirtable = (payload) => {
     return rxjs_1.from(node_fetch_1.default("https://api.airtable.com/v0/appvcDcxH8llgwoN7/Table%201/" + payload.row.id, {
-        body: JSON.stringify({ fields: { Reward: Number(payload.row.fields.Reward) / 100, Processed: true } }),
+        body: JSON.stringify({
+            fields: {
+                "Completed at": payload.row.fields["Completed at"],
+                "Processed": true,
+                "Reward": Number(payload.row.fields.Reward) / 100,
+            }
+        }),
         headers: {
             "Authorization": `Bearer ${process.env.AIRTABLE_KEY}`,
             "Content-Type": "application/json",
@@ -228,4 +211,4 @@ trigger
     trigger.next();
 });
 trigger.next();
-//# sourceMappingURL=index.js.map
+//# sourceMappingURL=workflow.js.map
