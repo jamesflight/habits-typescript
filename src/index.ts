@@ -267,7 +267,7 @@ const doPushoverNotification = (payload: IMonzoPipelinePayload) => {
 
 const markRowAsCompletedInAirtable = (payload: IMonzoPipelinePayload) => {
     return from(
-        fetch("https://api.airtable.com/v0/appvcDcxH8llgwoN7/Table%201/" + payload.row.id, {
+        fetch("https://api.airtable.com/v0/appvcDcxH8llgwoN7/Habits/" + payload.row.id, {
             body: JSON.stringify({fields: {Reward: Number(payload.row.fields.Reward) / 100, Processed: true}}),
             headers: {
                 "Authorization": `Bearer ${process.env.AIRTABLE_KEY}`,
