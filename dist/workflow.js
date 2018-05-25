@@ -165,7 +165,7 @@ const doPushoverNotification = (payload) => {
     })).pipe(operators_1.map(() => payload));
 };
 const markRowAsCompletedInAirtable = (payload) => {
-    return rxjs_1.from(node_fetch_1.default("https://api.airtable.com/v0/appvcDcxH8llgwoN7/Table%201/" + payload.row.id, {
+    return rxjs_1.from(node_fetch_1.default("https://api.airtable.com/v0/appvcDcxH8llgwoN7/Workflow/" + payload.row.id, {
         body: JSON.stringify({
             fields: {
                 "Completed at": payload.row.fields["Completed at"],

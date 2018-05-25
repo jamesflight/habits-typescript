@@ -236,7 +236,7 @@ const doPushoverNotification = (payload: IMonzoPipelinePayload) => {
 
 const markRowAsCompletedInAirtable = (payload: IMonzoPipelinePayload) => {
     return from(
-        fetch("https://api.airtable.com/v0/appvcDcxH8llgwoN7/Table%201/" + payload.row.id, {
+        fetch("https://api.airtable.com/v0/appvcDcxH8llgwoN7/Workflow/" + payload.row.id, {
             body: JSON.stringify({
                 fields: {
                     "Completed at": payload.row.fields["Completed at"],
